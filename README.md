@@ -1,4 +1,4 @@
 Erl-Of-Mar
 ==========
 
-Experiments in learning Erlanf
+Experiments in learning Erlang
