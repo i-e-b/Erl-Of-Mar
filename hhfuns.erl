@@ -1,5 +1,5 @@
 -module(hhfuns).
--compile(export_all).
+-export([map/2, even/1, filter/2]).
 
 one() -> 1.
 two() -> 2.
@@ -21,4 +21,12 @@ even([H|T], Acc) when H rem 2 == 0 ->
     even(T, Acc ++ [H]);
 even([_|T], Acc) ->
     even(T, Acc).
+
+filter(Pred, List) -> filter(Pred, List, []).
+filter(_,[],Acc) -> Acc;
+filter(Pred, [H|T], Acc) ->
+    case Pred(H) of
+        true -> filter(Pred, T, Acc ++ [H]);
+        false -> filter(Pred, T, Acc)
+    end.
 
