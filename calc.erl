@@ -19,6 +19,7 @@ rpn("^", [N1,N2|S]) -> [math:pow(N2,N1)|S];
 rpn("ln", [N|S])    -> [math:log(N)|S];
 rpn("log10", [N|S]) -> [math:log10(N)|S];
 rpn("sum", L)       -> [lists:foldl(fun(X,S)-> X+S end, 0, L)| []];
+rpn("prod", L)       -> [lists:foldl(fun(X,S)-> X*S end, 1, L)| []];
 rpn(X, Stack) -> [read(X) | Stack].
 
 rpn_test() ->
