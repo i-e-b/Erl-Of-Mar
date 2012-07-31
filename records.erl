@@ -1,5 +1,6 @@
 -module(records).
 -compile(export_all).
+-include("records.hrl").
 
 -record(robot, {name,
                 type=industrial,
@@ -19,6 +20,8 @@ is_adult(U = #user{}) when U#user.age >= 18 ->
     allowed;
 is_adult(_) ->
     forbidden.
+
+included() -> #included{a_field="yo"}.
 
 first_robot() ->
     #robot{name="Mechatron",
