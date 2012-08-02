@@ -8,7 +8,7 @@ dolphin() ->
         {From, fish} ->
             From ! "Thanks for the fish";
         {_, bye} ->
-            erlang:exit();
+            erlang:exit(bye);
         {From, _} ->
             From ! "I can do_a_flip any time I want"
     end,
