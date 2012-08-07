@@ -3,11 +3,11 @@
 -record(state, {server, name="", to_go=0}).
 
 
-start(EventName, Delay) ->
-    spawn(?MODULE, init, [self(), EventName, Delay]).
+start(EventName, DateTime) ->
+    spawn(?MODULE, init, [self(), EventName, DateTime]).
 
-start_link(EventName, Delay) ->
-    spawn_link(?MODULE, init, [self(), EventName, Delay]).
+start_link(EventName, DateTime) ->
+    spawn_link(?MODULE, init, [self(), EventName, DateTime]).
 
 cancel(Pid) ->
     Ref = erlang:monitor(process, Pid),
@@ -22,11 +22,11 @@ cancel(Pid) ->
 
 
 % Innards %
-init(Server, EventName, Delay) ->
+init(Server, EventName, DateTime) ->
     loop(#state{
             server=Server,
             name=EventName,
-            to_go=Delay}).
+            to_go=time_to_go(DateTime)}).
 
 loop(S = #state{server=Server}) ->
     Timer = erlang:send_after(S#state.to_go * 1000, Server, {done, S#state.name}),
@@ -36,5 +36,13 @@ loop(S = #state{server=Server}) ->
             Server ! {Ref, ok}
     end.
 
-% Hack around "after", which isn't the right way to do things! %
+time_to_go(TimeOut={{_,_,_}, {_,_,_}}) ->
+    Now = calendar:local_time(),
+    ToGo = calendar:datetime_to_gregorian_seconds(TimeOut) -
+           calendar:datetime_to_gregorian_seconds(Now),
+    Secs = if ToGo > 0 -> ToGo;
+              ToGo =< 0 -> 0
+           end,
+    Secs.
+
 
