@@ -1,6 +1,6 @@
 -module(evserv).
--compile(export_all).
-
+%-compile(export_all).
+-export([init/0, start/0, start_link/0, terminate/0, subscribe/1, add_event/3, cancel/1, listen/1]).
 -record(state, {
             events,    %list of #event{}
             clients}). %list of Pid
@@ -11,6 +11,60 @@ init() ->
     loop(#state{
             events=orddict:new(),
             clients=orddict:new()}).
+
+start() ->
+    Pid = spawn(?MODULE, init, []),
+    register(?MODULE, Pid),
+    Pid.
+
+start_link() ->
+    Pid = spawn_link(?MODULE, init, []),
+    register(?MODULE, Pid),
+    Pid.
+
+terminate() ->
+    ?MODULE ! shutdown.
+
+subscribe(Pid) ->
+    Ref = erlang:monitor(process, whereis(?MODULE)),
+    ?MODULE ! {self(), Ref, {subscribe, Pid}},
+    receive
+        {Ref, ok} ->
+            {ok, Ref};
+        {'DOWN', Ref, process, _Pid, Reason} ->
+            {error, Reason}
+    after 5000 ->
+        {error, timeout}
+    end.
+
+add_event(Name, Description, TimeOut) ->
+    Ref = make_ref(),
+    ?MODULE ! {self(), Ref, {add, Name, Description, TimeOut}},
+    receive
+        {Ref, ok} ->
+            {ok, Ref};
+        {'DOWN', Ref, process, _Pid, Reason} ->
+            {error, Reason}
+    after 5000 ->
+        {error, timeout}
+    end.
+
+cancel(Name) ->
+    Ref = make_ref(),
+    ?MODULE ! {self(), Ref, {cancel, Name}},
+    receive
+        {Ref, ok} -> ok
+    after 5000 ->
+        {error, timeout}
+    end.
+
+listen(ForSeconds) ->
+    receive
+        M = {done, _Name, _Description} ->
+            [M | listen(0)]
+    after ForSeconds*1000 ->
+        []
+    end.
 
 
 % Innards %
