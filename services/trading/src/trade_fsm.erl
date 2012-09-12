@@ -110,6 +110,13 @@ unexpected(Msg, State) ->
     io:format("~p received unknown event ~p while in state ~p~n",
         [self(), Msg, State]).
 
+%% add item to list
+add(Item, Items) -> [Item | Items].
+
+%% remove item from list
+remove(Item, Items) -> Items -- [Item].
+
+%: async - ask_negotiate
 idle({ask_negotiate, OtherPid}, S=#state{}) ->
     Ref = monitor(process, OtherPid),
     notice(S, "~p asked for a trade negotiation", [OtherPid]),
@@ -118,4 +125,40 @@ idle(Event, Data) ->
     unexpected(Event, idle),
     {next_state, idle, Data}.
 
+%: sync - start negotiating
+idle({negotiate, OtherPid}, From, S=#state{}) ->
+    ask_negotiate(OtherPid, self()),
+    notice(S, "asking user ~p for a trade", [OtherPid]),
+    Ref = monitor(process, OtherPid),
+    {next_state, idle_wait, S#state{other=OtherPid, monitor=Ref, from=From}};
+idle(Event, _From,  Data) ->
+    unexpected(Event, idle),
+    {next_state, idle, Data}.
+
+idle_wait({ask_negotiate, OtherPid}, S=#state{other=OtherPid}) ->
+    gen_fsm:reply(S#state.from, ok),
+    notice(S, "starting negotiation", []),
+    {next_state, negotiate, S};
+idle_wait({accept_negotiate, OtherPid}, S=#state{other=OtherPid}) ->
+    gen_fsm:reply(S#state.from, ok),
+    notice(S, "starting negotiation", []),
+    {next_state, negotiate, S};
+idle_wait(Event, Data) ->
+    unexpected(Event, idle_wait),
+    {next_state, idle_wait, Data}.
+
+idle_wait(accept_negotiate, _From, S=#state{other=OtherPid}) ->
+    accept_negotiate(OtherPid, self()),
+    notice(S, "accepting negotiation", []),
+    {reply, ok, negotiate, S};
+idle_wait(Event, _From, Data) ->
+    unexpected(Event, idle_wait),
+    {next_state, idle_wait, Data}.
+
+
+negotiate({make_offer, Item}, S=#state{ownitems=OwnItems}) ->
+    do_offer(S#state.other, Item),
+    notice(S, "offering ~p", %% ... to be continued! 
+        %% http://learnyousomeerlang.com/finite-state-machines#a-trading-system-specification
+        %% Using both of these functions, we can implement offering and removing items:
 
