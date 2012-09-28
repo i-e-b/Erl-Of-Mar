@@ -6,7 +6,7 @@
         make_offer/2, retract_offer/2, ready/1, cancel/1]).
 
 % Gen fsm callbacks %
--export([init/1, handler_event/3, handle_sync_event/4,
+-export([init/1, handle_event/3, handle_sync_event/4,
         handle_info/3, terminate/3, code_change/4]).
 
 %% Public API %%
@@ -195,5 +195,116 @@ negotiate(Event, _From, S) ->
     unexpected(Event, negotiate),
     {next_state, negotiate, S}.
 
+%% Handle offers and retractions while waiting by returning to
+%  negotiation
+wait({do_offer, Item}, S=#state{otheritems=OtherItems}) ->
+    gen_fsm:reply(S#state.from, offer_changed),
+    notice(S, "other side offering ~p", [Item]),
+    {next_state, negotiate, S#state{otheritems=add(Item, OtherItems)}};
+wait({undo_offer, Item}, S=#state{otheritems=OtherItems}) ->
+    gen_fsm:reply(S#state.from, offer_changed),
+    notice(S, "other side cancelling offer of ~p", [Item]),
+    {next_state, negotiate, S#state{otheritems=remove(Item, OtherItems)}};
+%% Handshake for all ready
+wait(are_you_ready, S=#state{}) ->
+    am_ready(S#state.other),
+    notice(S, "asked if ready, and I am. Waiting for same reply", []),
+    {next_state, wait, S};
+%% Continue waiting if other side not ready but no offer changes
+wait(not_yet, S=#state{}) ->
+    notice(S, "Other side not ready yet", []),
+    {next_state, wait, S};
 
+%% Finish handshake - both sides ready
+wait('ready!', S=#state{}) ->
+    am_ready(S#state.other),
+    ack_trans(S#state.other),
+    gen_fsm:reply(S#state.from, ok),
+    notice(S, "other side ready, moving to ready state", []),
+    {next_state, ready, S};
+
+%% Dead messages
+wait(Event, Data) ->
+    unexpected(Event, wait),
+    {next_state, wait, Data}.
+
+priority(OwnPid, OtherPid) when OwnPid > OtherPid -> true;
+priority(OwnPid, OtherPid) when OwnPid < OtherPid -> false.
+commit(S=#state{}) ->
+    io:format(
+        "Transaction completed for ~s. "
+        "Items sent are:~n~p,~n received are:~n~p,~n",
+        [S#state.name, S#state.ownitems, S#state.otheritems]).
+
+%% Start or wait for commit, based on pid priority
+ready(ack, S=#state{}) ->
+    case priority(self(), S#state.other) of
+        false ->
+            {next_state, ready, S};
+        true ->
+            try
+                notice(S, "asking for commit", []),
+                ready_commit = ask_commit(S#state.other),
+                notice(S, "ordering commit", []),
+                ok = do_commit(S#state.other),
+                notice(S, "committing...", []),
+                commit(S),
+                {stop, normal, S}
+            catch Class:Reason ->
+                notice(S, "commit failed", []),
+                {stop, {Class, Reason}, S}
+            end
+    end;
+ready(Event, Data) ->
+    unexpected(Event, ready),
+    {next_state, ready, Data}.
+
+%% Commit stages
+ready(ask_commit, _From, S) ->
+    notice(S, "replying to ask_commit", []),
+    {reply, ready_commit, ready, S};
+ready(do_commit, _From, S) ->
+    notice(S, "committing...", []),
+    commit(S),
+    {stop, normal, ok, S};
+ready(Event, _From, Data) ->
+    unexpected(Event, ready),
+    {next_state, ready, Data}.
+
+%% Other side is cancelling. Drop everything and shutdown.
+handle_event(cancel, _StateName, S=#state{}) ->
+    notice(S, "received cancel event", []),
+    {stop, other_cancelled, S};
+handle_event(Event, StateName, Data) ->
+    unexpected(Event, StateName),
+    {next_state, StateName, Data}.
+
+%% Tell other side if we quit
+handle_sync_event(cancel, _From, _StateName, S=#state{}) ->
+    notify_cancel(S#state.other),
+    notice(S, "cancelling trade, sending cancel event",[]),
+    {stop, cancelled, ok, S};
+% no reply to unexpected sync events. Let the other side crash.
+handle_sync_event(Event, _From, StateName, Data) ->
+    unexpected(Event, StateName),
+    {next_state, StateName, Data}.
+
+%% Cope with the other fsm dying
+handle_info({'DOWN', Ref, process, Pid, Reason}, _, S=#state{other=Pid,
+        monitor=Ref}) ->
+    notice(S, "other side dead", []),
+    {stop, {other_down, Reason}, S};
+handle_info(Info, StateName, Data) ->
+    unexpected(Info, StateName),
+    {next_state, StateName, Data}.
+
+%% All done
+terminate(normal, ready, S=#state{}) ->
+    notice(S, "FSM leaving", []);
+terminate(_Reason, _StateName, _StateData) ->
+    ok.
+
+%% Change teh codez
+code_change(_OldVsn, StateName, Data, _Extra) ->
+    {ok, StateName, Data}.
 
