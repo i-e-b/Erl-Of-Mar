@@ -155,10 +155,45 @@ idle_wait(Event, _From, Data) ->
     unexpected(Event, idle_wait),
     {next_state, idle_wait, Data}.
 
-
+%% We make initial offer
 negotiate({make_offer, Item}, S=#state{ownitems=OwnItems}) ->
     do_offer(S#state.other, Item),
-    notice(S, "offering ~p", %% ... to be continued! 
-        %% http://learnyousomeerlang.com/finite-state-machines#a-trading-system-specification
-        %% Using both of these functions, we can implement offering and removing items:
+    notice(S, "offering ~p", [Item]),
+    {next_state, negotiate, S#state{ownitems=add(Item, OwnItems)}};
+%% We retract an offer
+negotiate({retract_offer, Item}, S=#state{ownitems=OwnItems}) ->
+    undo_offer(S#state.other, Item),
+    notice(S, "cancelling offer on ~p", [Item]),
+    {next_state, negotiate, S#state{ownitems=remove(Item, OwnItems)}};
+%% Other side make an offer
+negotiate({do_offer, Item}, S=#state{otheritems=OtherItems}) ->
+    notice(S, "other player offering ~p", [Item]),
+    {next_state, negotiate, S#state{otheritems=add(Item, OtherItems)}};
+negotiate({undo_offer, Item}, S=#state{otheritems=OtherItems}) ->
+    notice(S, "other player cancelling offer on ~p", [Item]),
+    {next_state, negotiate, S#state{otheritems=remove(Item, OtherItems)}};
+
+%% other side signaled they're done trading
+negotiate(are_you_ready, S=#state{other=OtherPid}) ->
+    io:format("Other user ready to trade.~n"),
+    notice(S,
+        "Other user ready to transfer goods:~n"
+        "You get ~p, they get ~p",
+        [S#state.otheritems, S#state.ownitems]),
+    not_yet(OtherPid),
+    {next_state, negotiate, S};
+negotiate(Event, Data) ->
+    unexpected(Event, negotiate),
+    {next_state, negotiate, Data}.
+
+%% Synchronous wait for ready
+negotiate(ready, From, S = #state{other=OtherPid}) ->
+    are_you_ready(OtherPid),
+    notice(S, "asking if ready, waiting", []),
+    {next_state, wait, S#state{from=From}};
+negotiate(Event, _From, S) ->
+    unexpected(Event, negotiate),
+    {next_state, negotiate, S}.
+
+
 
